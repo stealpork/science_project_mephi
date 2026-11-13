@@ -1,0 +1,35 @@
+x-tls-env: &tls-env
+  SC_PUBLIC_URL: ${PUBLIC_URL:-https://localhost:18443}
+  SC_S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT:-https://localhost:19443}
+  SC_ALLOWED_ORIGINS: '${ALLOWED_ORIGINS:-["https://localhost:18443"]}'
+services:
+  identity: {environment: *tls-env}
+  people: {environment: *tls-env}
+  projects: {environment: *tls-env}
+  publications: {environment: *tls-env}
+  media: {environment: *tls-env}
+  activity: {environment: *tls-env}
+  identity-worker: {environment: *tls-env}
+  people-worker: {environment: *tls-env}
+  projects-worker: {environment: *tls-env}
+  publications-worker: {environment: *tls-env}
+  media-worker: {environment: *tls-env}
+  activity-worker: {environment: *tls-env}
+  minio:
+    environment:
+      MINIO_API_CORS_ALLOW_ORIGIN: ${S3_ALLOWED_ORIGINS:-https://localhost:18443}
+  nginx:
+    volumes:
+      - type: bind
+        source: ${SECRET_DIRECTORY}/tls/nginx.conf
+        target: /etc/nginx/nginx.conf
+        read_only: true
+        bind: {create_host_path: false}
+      - type: bind
+        source: ${SECRET_DIRECTORY}/tls/server
+        target: /etc/science-tls
+        read_only: true
+        bind: {create_host_path: false}
+    ports:
+      - '${TLS_BIND_ADDRESS:-127.0.0.1}:${TLS_APP_PORT:-18443}:443'
+      - '${TLS_BIND_ADDRESS:-127.0.0.1}:${TLS_S3_PORT:-19443}:9443'

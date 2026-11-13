@@ -1,0 +1,32 @@
+x-local: &local
+  restart: 'no'
+services:
+  postgres: {<<: *local}
+  redis: {<<: *local}
+  rabbitmq:
+    <<: *local
+    environment:
+      RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS: '+S 2:2 +SDcpu 1 +SDio 1'
+      RABBITMQ_CTL_ERL_ARGS: '+S 1:1 +SDcpu 1 +SDio 1'
+    healthcheck:
+      interval: 30s
+  minio: {<<: *local}
+  mailpit: {<<: *local}
+  clamav: {<<: *local}
+  identity: {<<: *local}
+  people: {<<: *local}
+  projects: {<<: *local}
+  publications: {<<: *local}
+  media: {<<: *local}
+  activity: {<<: *local}
+  identity-worker: {<<: *local}
+  people-worker: {<<: *local}
+  projects-worker: {<<: *local}
+  publications-worker: {<<: *local}
+  media-worker: {<<: *local}
+  activity-worker: {<<: *local}
+  nginx: {<<: *local}
+  prometheus: {<<: *local}
+  grafana: {<<: *local}
+  backup-metrics: {<<: *local}
+  alertmanager: {<<: *local}

@@ -1,0 +1,24 @@
+x-instrumented: &instrumented
+  image: science-backend:test
+  build:
+    target: test
+  environment:
+    COVERAGE_PROCESS_START: /app/pyproject.toml
+    COVERAGE_FILE: /coverage/.coverage
+    PYTHONPATH: /app/tests/instrumentation:/app
+  volumes:
+    - ../test-results/coverage:/coverage
+
+services:
+  identity: *instrumented
+  people: *instrumented
+  projects: *instrumented
+  publications: *instrumented
+  media: *instrumented
+  activity: *instrumented
+  identity-worker: *instrumented
+  people-worker: *instrumented
+  projects-worker: *instrumented
+  publications-worker: *instrumented
+  media-worker: *instrumented
+  activity-worker: *instrumented
