@@ -1,0 +1,11 @@
+[Unit]
+Description=Science hourly backup (template, not installed automatically)
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=55min
+Persistent=true
+Unit=science-backup.service
+
+[Install]
+WantedBy=timers.target

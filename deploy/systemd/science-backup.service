@@ -1,0 +1,13 @@
+[Unit]
+Description=Science encrypted full-stack backup
+After=docker.service
+
+[Service]
+Type=oneshot
+User=science
+Group=science
+Environment=PATH=/opt/science/bin:/usr/local/bin:/usr/bin:/bin
+WorkingDirectory=/opt/science
+ExecStart=/opt/science/deploy/scripts/backup.sh
+TimeoutStartSec=30min
+UMask=0077

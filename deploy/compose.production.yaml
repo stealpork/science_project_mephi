@@ -1,0 +1,35 @@
+services:
+  rabbitmq:
+    environment:
+      RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS: '+S 2:2 +SDcpu 1 +SDio 1'
+      RABBITMQ_CTL_ERL_ARGS: '+S 1:1 +SDcpu 1 +SDio 1'
+    healthcheck:
+      interval: 30s
+  mailpit:
+    profiles: [local-mail]
+  minio:
+    environment:
+      MINIO_API_CORS_ALLOW_ORIGIN: ${PUBLIC_URL:?PUBLIC_URL required}
+  nginx:
+    volumes:
+      - type: bind
+        source: ${SECRET_DIRECTORY}/tls/nginx.conf
+        target: /etc/nginx/nginx.conf
+        read_only: true
+        bind: {create_host_path: false}
+      - type: bind
+        source: ${SECRET_DIRECTORY}/tls/server
+        target: /etc/science-tls
+        read_only: true
+        bind: {create_host_path: false}
+    ports: !override
+      - '${PRODUCTION_BIND_ADDRESS:-0.0.0.0}:${TLS_APP_PORT:-443}:443'
+      - '${PRODUCTION_BIND_ADDRESS:-0.0.0.0}:${TLS_S3_PORT:-9443}:9443'
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, http://127.0.0.1/health]
+      interval: 15s
+      timeout: 3s
+      retries: 10
+    logging:
+      driver: json-file
+      options: {max-size: 10m, max-file: '3'}
