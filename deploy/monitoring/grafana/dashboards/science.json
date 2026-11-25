@@ -1,0 +1,12 @@
+{
+  "uid": "science-overview", "title": "Science · Operations", "schemaVersion": 39, "version": 1,
+  "time": {"from": "now-1h", "to": "now"}, "refresh": "15s",
+  "panels": [
+    {"id": 1, "title": "Targets up", "type": "stat", "gridPos": {"x": 0,"y": 0,"w": 6,"h": 5}, "datasource": {"type":"prometheus","uid":"science-prometheus"}, "targets": [{"expr": "sum(up)","refId":"A"}]},
+    {"id": 2, "title": "Backup age (seconds)", "type": "stat", "gridPos": {"x": 6,"y": 0,"w": 6,"h": 5}, "datasource": {"type":"prometheus","uid":"science-prometheus"}, "targets": [{"expr": "time() - science_backup_last_success_timestamp","refId":"A"}]},
+    {"id": 3, "title": "HTTP requests / second", "type": "timeseries", "gridPos": {"x": 0,"y": 5,"w": 12,"h": 8}, "datasource": {"type":"prometheus","uid":"science-prometheus"}, "targets": [{"expr": "sum by(service)(rate(science_http_requests_total[2m]))","refId":"A","legendFormat":"{{service}}"}]},
+    {"id": 4, "title": "HTTP p95 seconds", "type": "timeseries", "gridPos": {"x": 12,"y": 5,"w": 12,"h": 8}, "datasource": {"type":"prometheus","uid":"science-prometheus"}, "targets": [{"expr": "histogram_quantile(0.95,sum by(service,le)(rate(science_http_duration_seconds_bucket[2m])))","refId":"A","legendFormat":"{{service}}"}]},
+    {"id": 5, "title": "Outbox oldest pending event (seconds)", "type": "timeseries", "gridPos": {"x": 0,"y": 13,"w": 12,"h": 8}, "datasource": {"type":"prometheus","uid":"science-prometheus"}, "targets": [{"expr": "science_outbox_oldest_seconds","refId":"A","legendFormat":"{{service}}"}]},
+    {"id": 6, "title": "Event processing results", "type": "timeseries", "gridPos": {"x": 12,"y": 13,"w": 12,"h": 8}, "datasource": {"type":"prometheus","uid":"science-prometheus"}, "targets": [{"expr": "sum by(service,result)(rate(science_worker_events_total[2m]))","refId":"A","legendFormat":"{{service}} {{result}}"}]}
+  ]
+}

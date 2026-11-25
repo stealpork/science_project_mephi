@@ -1,0 +1,50 @@
+groups:
+  - name: science
+    rules:
+      - alert: ScienceTargetDown
+        expr: up == 0
+        for: 1m
+        labels: {severity: critical}
+        annotations: {summary: 'Monitoring target unavailable: {{ $labels.instance }}'}
+      - alert: OutboxDeliveryDelayed
+        expr: science_outbox_oldest_seconds > 60
+        for: 2m
+        labels: {severity: warning}
+        annotations: {summary: 'Unpublished events in {{ $labels.service }}'}
+      - alert: DatabaseNotReady
+        expr: science_database_ready == 0
+        for: 1m
+        labels: {severity: critical}
+        annotations: {summary: 'Database unavailable in {{ $labels.service }}'}
+      - alert: HighApiErrorRate
+        expr: sum by(service)(rate(science_http_requests_total{status=~"5.."}[5m])) / sum by(service)(rate(science_http_requests_total[5m])) > 0.05
+        for: 2m
+        labels: {severity: warning}
+        annotations: {summary: 'More than 5 percent server errors in {{ $labels.service }}'}
+      - alert: EventDeadLettered
+        expr: increase(science_worker_events_total{result="dead"}[5m]) > 0
+        labels: {severity: critical}
+        annotations: {summary: 'An event exhausted its retries; inspect DLQ'}
+      - alert: BackupMissingOrStale
+        expr: time() - science_backup_last_success_timestamp > 3600 or absent(science_backup_last_success_timestamp)
+        for: 5m
+        labels: {severity: critical}
+        annotations: {summary: 'No successful backup within the RPO of one hour'}
+      - alert: BackupFailed
+        expr: science_backup_last_attempt_success == 0
+        labels: {severity: critical}
+        annotations: {summary: 'The latest backup attempt failed'}
+      - alert: RestoreDrillOverdue
+        expr: time() - science_backup_last_restore_check_timestamp > 604800 or absent(science_backup_last_restore_check_timestamp)
+        for: 5m
+        labels: {severity: warning}
+        annotations: {summary: 'No verified restore within seven days'}
+      - alert: OffsiteCopyFailed
+        expr: science_offsite_last_attempt_success == 0
+        labels: {severity: critical}
+        annotations: {summary: 'The latest encrypted S3 backup copy failed'}
+      - alert: OffsiteCopyStale
+        expr: (time() - science_offsite_last_success_timestamp > 3600) and (science_offsite_rehearsal == 0)
+        for: 5m
+        labels: {severity: critical}
+        annotations: {summary: 'Configured external S3 backup has not been verified within one hour'}
