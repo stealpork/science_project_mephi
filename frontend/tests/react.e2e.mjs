@@ -1,13 +1,43 @@
 import { before, after, test } from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdir, writeFile } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
 import { harness, go, fill, click, login } from '../tools/browser-harness.mjs';
 import { ids } from './fixtures/api.mjs';
 let app;
-before(async () => { app = await harness(); });
+const results = new URL(`../../test-results/frontend-e2e-${new Date().toISOString().replaceAll(':', '-')}/`, import.meta.url);
+
+async function search(page, selector, value) {
+  await page.locator(selector).fill(value);
+  await page.waitForFunction((selector, value) => document.querySelector(selector)?.value === value, {}, selector, value);
+  const response = page.waitForResponse(response => {
+    const url = new URL(response.url());
+    return response.request().method() === 'GET' && url.pathname === '/api/v1/projects' && url.searchParams.get('q') === value;
+  });
+  const [, result] = await Promise.all([click(page, 'Найти'), response]);
+  assert.equal(result.status(), 200, `Project search: ${value}`);
+  await page.waitForFunction(value => location.pathname === '/projects' && new URLSearchParams(location.search).get('q') === value, {}, value);
+}
+
+async function saveSearchFailure(page, width) {
+  await mkdir(results, { recursive: true });
+  await page.screenshot({ path: fileURLToPath(new URL(`search-${width}.png`, results)), fullPage: true });
+  const state = await page.evaluate(() => ({
+    route: location.pathname + location.search,
+    heading: document.querySelector('main h1')?.textContent,
+    search: [...document.querySelectorAll('input[name="q"]')].map(input => ({ value: input.value, label: input.getAttribute('aria-label') })),
+    content: document.querySelector('main')?.innerText,
+  }));
+  await writeFile(new URL(`search-${width}.json`, results), JSON.stringify({ state, errors: app.errors, requests: app.requests }, null, 2));
+}
+before(async () => {
+  app = await harness();
+  console.log(`E2E runtime: Node ${process.version}; ${await app.browser.version()}; ${process.platform}/${process.arch}`);
+});
 after(async () => { await app.close(); assert.deepEqual(app.errors, [], 'Browser runtime errors'); });
 
 for (const width of [1440, 390, 320]) {
-  test(`public navigation, search, keyboard and layout at ${width}px`, async () => {
+  test(`public navigation, search, keyboard and layout at ${width}px`, async (t) => {
     const { page, context } = await app.page(width);
     try {
       for (const route of ['/', '/projects', '/researchers', '/papers', `/projects/${ids.project}`, `/papers/${ids.paper}`, `/researchers/${ids.owner}`, '/login', '/register', '/forgot-password', '/missing']) {
@@ -18,9 +48,18 @@ for (const width of [1440, 390, 320]) {
       const favicon = await page.evaluate(async () => { const icon = document.querySelector('link[rel="icon"]'); const response = await fetch(icon.href); return {type:response.headers.get('content-type'), body:await response.text(), status:response.status}; });
       assert.equal(favicon.status, 200); assert.match(favicon.type, /image\/svg\+xml/); assert.match(favicon.body, /<svg/);
       await go(page, app.base, '/'); await page.locator('#search-projects').click(); await page.keyboard.press('End'); assert.equal(await page.$eval('#search-papers', node => node.getAttribute('aria-selected')), 'true');
-      await page.keyboard.press('Home'); await page.locator('[name="q"]').fill('Анализ'); await click(page, 'Найти'); await page.waitForFunction(() => location.pathname === '/projects'); await page.waitForSelector('.project-card');
-      await page.locator('[name="q"]').fill('No-match-987654'); await click(page, 'Найти'); await page.waitForFunction(() => document.querySelector('main')?.textContent.includes('Проекты не найдены.'));
+      await page.keyboard.press('Home');
+      await search(page, 'input[aria-label="Поисковый запрос"]', 'Анализ');
+      await page.waitForFunction(() => document.querySelector('main h1')?.textContent === 'Проекты' && document.querySelector('input[aria-label="Поиск в каталоге"]')?.value === 'Анализ');
+      await page.waitForSelector('.catalog-search');
+      await page.waitForSelector('.project-card');
+      await search(page, '.catalog-search input[name="q"]', 'No-match-987654');
+      await page.waitForFunction(() => document.querySelector('main')?.textContent.includes('Проекты не найдены.'));
+      assert.equal(await page.$('.project-card'), null);
       await go(page, app.base, '/projects/new'); await page.waitForFunction(() => location.pathname === '/login');
+    } catch (error) {
+      await saveSearchFailure(page, width).catch(captureError => t.diagnostic(`Search diagnostics failed: ${captureError.message}`));
+      throw error;
     } finally { await context.close(); }
   });
   test(`profile, favorites, refresh, notifications, settings at ${width}px`, async () => {

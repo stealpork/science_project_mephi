@@ -21,7 +21,7 @@ export async function harness({ liveTarget } = {}) {
         const chunks = []; for await (const chunk of req) chunks.push(chunk);
         const input = Buffer.concat(chunks).toString();
         const result = await fixture.handle(req, url, req.headers['content-type']?.includes('application/json') && input ? JSON.parse(input) : {});
-        requests.push({ method: req.method, path: url.pathname, status: result.status });
+        requests.push({ method: req.method, path: url.pathname, search: url.search, status: result.status });
         res.writeHead(result.status, { 'Content-Type': result.type ?? 'application/json' }); res.end(result.raw ?? (result.body === undefined ? '' : JSON.stringify(result.body))); return;
       }
       const filename = path.resolve(root, `.${decodeURIComponent(url.pathname)}`);
