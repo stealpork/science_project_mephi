@@ -52,7 +52,7 @@ jobs:
           printf '{"commit":"%s","image":"%s","web_image":"%s","storage_image":"%s","release":"%s","automatic_deploy":false}\n' "$GITHUB_SHA" "$DIGEST" "$WEB_DIGEST" "$STORAGE_DIGEST" "$RELEASE_LABEL" > artifacts/release/manifest.json
           cp deploy/compose.yaml artifacts/release/
           cp deploy/compose.production.yaml artifacts/release/
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: release-manifest
           path: artifacts/release/
