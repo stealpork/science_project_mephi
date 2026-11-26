@@ -1,0 +1,43 @@
+name: Backend load acceptance (manual)
+on:
+  workflow_dispatch:
+    inputs:
+      profile:
+        type: choice
+        options: [baseline, distributed-baseline, distributed-stress, distributed-soak, workflow, stress, soak]
+        default: baseline
+permissions:
+  contents: read
+jobs:
+  load:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9
+        with:
+          version: '0.13.0'
+      - run: uv sync --frozen --python 3.13
+        working-directory: backend
+      - run: deploy/scripts/test.sh up
+      - name: Seed 1000 test users and 100 projects
+        run: |
+          docker compose --env-file .env.test -f deploy/compose.yaml exec -T identity python -m libs.platform.cli seed-users --count 1000
+          docker compose --env-file .env.test -f deploy/compose.yaml exec -T projects python -m libs.platform.cli seed-projects --count 100
+      - name: Measure selected profile
+        env:
+          LOAD_PROFILE: ${{ inputs.profile }}
+        run: |
+          deploy/scripts/test.sh perf-up
+          if [ "${LOAD_PROFILE#distributed-}" != "$LOAD_PROFILE" ]; then
+            deploy/scripts/load-distributed.sh "${LOAD_PROFILE#distributed-}"
+          else
+            deploy/scripts/load.sh "$LOAD_PROFILE"
+          fi
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: load-results
+          path: test-results/
+      - run: docker compose --env-file .env.test -f deploy/compose.yaml down
+        if: always()

@@ -1,0 +1,31 @@
+name: Backup and restore drill (manual)
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  drill:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9
+        with:
+          version: '0.13.0'
+      - run: uv sync --frozen --python 3.13
+        working-directory: backend
+      - run: deploy/scripts/test.sh up
+      - run: deploy/scripts/test.sh live
+      - name: Back up the ordinary runtime image, not the coverage image
+        run: deploy/scripts/test.sh perf-up
+      - name: Encrypted snapshot of test databases and object files
+        run: deploy/scripts/backup.sh --env-file "$GITHUB_WORKSPACE/.env.test" --directory "$GITHUB_WORKSPACE/backups/test"
+      - name: Release runner memory before independent restore
+        run: docker compose --env-file .env.test -f deploy/compose.yaml stop
+      - name: Restore, compare every table, verify S3 contents
+        run: deploy/scripts/restore.sh --env-file "$GITHUB_WORKSPACE/.env.test" --directory "$GITHUB_WORKSPACE/backups/test" --project science-restore-ci
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: restore-metrics-only
+          path: backups/test/metrics/

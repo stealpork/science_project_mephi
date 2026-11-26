@@ -1,0 +1,123 @@
+name: Platform CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  frontend:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci --ignore-scripts --no-fund
+        working-directory: frontend
+      - run: npm audit --audit-level=high
+        working-directory: frontend
+      - run: npm run build && npm run test:coverage
+        working-directory: frontend
+      - name: Use the sandboxed Chrome supplied by the Ubuntu runner image
+        run: test -x /usr/bin/google-chrome
+      - run: npm run test:e2e
+        working-directory: frontend
+        env:
+          CHROMIUM_PATH: /usr/bin/google-chrome
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: frontend-results
+          path: |
+            frontend/coverage/
+            test-results/frontend-*/
+  static-and-unit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9
+        with:
+          version: '0.13.0'
+          enable-cache: true
+      - run: uv sync --frozen --python 3.13
+        working-directory: backend
+      - name: Audit the frozen runtime dependencies without installing them through pip
+        working-directory: backend
+        env:
+          REQUESTS_CA_BUNDLE: /etc/ssl/certs/ca-certificates.crt
+        run: |
+          mkdir -p ../test-results
+          uv export --frozen --no-dev --no-emit-project --output-file ../test-results/runtime-requirements.txt > /dev/null
+          uvx pip-audit==2.10.1 --disable-pip --require-hashes --requirement ../test-results/runtime-requirements.txt --timeout 30 --format json --output ../test-results/dependency-audit.json
+      - run: uv run --frozen ruff check . ../deploy/scripts && uv run --frozen ruff format --check . ../deploy/scripts && uv run --frozen mypy libs services
+        working-directory: backend
+      - run: deploy/scripts/test.sh unit
+      - run: PYTHONPATH=. uv run --frozen python ../deploy/scripts/export-contracts.py
+        working-directory: backend
+      - run: git diff --exit-code -- contracts/openapi
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: unit-results
+          path: test-results/
+  integration-and-e2e:
+    needs: [static-and-unit, frontend]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9
+        with:
+          version: '0.13.0'
+      - run: uv sync --frozen --python 3.13
+        working-directory: backend
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+      - run: npm ci --ignore-scripts --no-fund
+        working-directory: frontend
+      - name: Isolated test stack, real PostgreSQL/S3/RabbitMQ/ClamAV
+        run: deploy/scripts/test.sh up
+      - name: Include unit branches in the combined server coverage
+        run: deploy/scripts/test.sh unit
+      - run: deploy/scripts/test.sh live
+      - name: Collect actual API and worker coverage
+        if: always()
+        run: deploy/scripts/test.sh coverage
+      - name: Require complete line and branch coverage
+        working-directory: backend
+        run: |
+          uv run --frozen coverage json -o ../test-results/coverage.json
+          uv run --frozen python ../deploy/scripts/check_coverage.py ../test-results/coverage.json
+      - run: deploy/scripts/test.sh perf-up && deploy/scripts/load.sh smoke
+      - name: Chromium for actual React + API browser scenarios
+        run: test -x /usr/bin/google-chrome
+      - name: React with real services, RabbitMQ and S3
+        run: npm run test:live
+        working-directory: frontend
+        env:
+          CHROMIUM_PATH: /usr/bin/google-chrome
+      - name: Ensure the ordinary image excludes tests and development tooling
+        run: docker compose --env-file .env.test -f deploy/compose.yaml exec -T identity python -c 'from pathlib import Path; from importlib.util import find_spec; assert not Path("/app/tests").exists(); assert not Path("/app/.coverage").exists(); assert Path("/app/migrations/env.py").is_file(); assert find_spec("pytest") is None; assert find_spec("coverage") is None'
+      - name: Verify HTTPS API, CORS, and signed S3 PUT/GET with a trusted local CA
+        run: deploy/scripts/test.sh tls
+      - name: Verify actual SMTP alert delivery in Mailpit
+        run: SC_ENV_FILE="$GITHUB_WORKSPACE/.env.test" deploy/scripts/monitoring.sh up && SC_ENV_FILE="$GITHUB_WORKSPACE/.env.test" deploy/scripts/monitoring.sh drill
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: live-results
+          path: test-results/
+      - name: Stop only this ephemeral runner's test project
+        if: always()
+        run: docker compose --env-file .env.test -f deploy/compose.yaml --profile monitoring down

@@ -1,0 +1,58 @@
+name: CD foundation (manual, packaging only)
+on:
+  workflow_dispatch:
+    inputs:
+      release:
+        description: 'Immutable release label (e.g. sha-0123456789ab)'
+        required: true
+        type: string
+permissions:
+  contents: read
+  packages: write
+concurrency:
+  group: release-packaging
+  cancel-in-progress: false
+jobs:
+  verify:
+    if: vars.ENABLE_RELEASE_PACKAGING == 'true'
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+  package:
+    needs: verify
+    if: vars.ENABLE_RELEASE_PACKAGING == 'true'
+    environment: release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Validate release label
+        env:
+          RELEASE_LABEL: ${{ inputs.release }}
+        run: '[[ "$RELEASE_LABEL" =~ ^sha-[a-f0-9]{12,40}$ ]] && [[ "$GITHUB_SHA" == "${RELEASE_LABEL#sha-}"* ]]'
+      - name: Build and publish backend, web and storage images
+        env:
+          RELEASE_LABEL: ${{ inputs.release }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          IMAGE="ghcr.io/${GITHUB_REPOSITORY,,}/backend:$RELEASE_LABEL"
+          WEB_IMAGE="ghcr.io/${GITHUB_REPOSITORY,,}/web:$RELEASE_LABEL"
+          STORAGE_IMAGE="ghcr.io/${GITHUB_REPOSITORY,,}/storage:$RELEASE_LABEL"
+          printf '%s' "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          docker build --target base -f backend/Dockerfile -t "$IMAGE" .
+          docker push "$IMAGE"
+          docker build -f deploy/nginx/Dockerfile -t "$WEB_IMAGE" .
+          docker push "$WEB_IMAGE"
+          docker build -f deploy/minio/Dockerfile -t "$STORAGE_IMAGE" deploy/minio
+          docker push "$STORAGE_IMAGE"
+          DIGEST=$(docker inspect --format '{{index .RepoDigests 0}}' "$IMAGE")
+          WEB_DIGEST=$(docker inspect --format '{{index .RepoDigests 0}}' "$WEB_IMAGE")
+          STORAGE_DIGEST=$(docker inspect --format '{{index .RepoDigests 0}}' "$STORAGE_IMAGE")
+          mkdir -p artifacts/release
+          printf '{"commit":"%s","image":"%s","web_image":"%s","storage_image":"%s","release":"%s","automatic_deploy":false}\n' "$GITHUB_SHA" "$DIGEST" "$WEB_DIGEST" "$STORAGE_DIGEST" "$RELEASE_LABEL" > artifacts/release/manifest.json
+          cp deploy/compose.yaml artifacts/release/
+          cp deploy/compose.production.yaml artifacts/release/
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: release-manifest
+          path: artifacts/release/
